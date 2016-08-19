@@ -14,10 +14,15 @@ hello &                    :: hello
 & & hello &                :: hello
 | | hello |                :: hello
 "hello" hello              :: "hello"  hello           # literal
-"hello" @tag_list fox      :: "hello"   @tag_list fox
-@tag_list tea "hello fox"  :: @tag_list tea  "hello fox" 
+"hello" @tag_list fox      :: @tag_list fox "hello"
+@tag_list tea "hello fox"  :: @tag_list tea "hello fox"
+@tag_list "hello fox" tea  :: @tag_list "hello fox"  tea
 hello" hello               :: hello  hello
 hello' hello               :: hello  hello
-hello' @tag_list fox       :: hello   @tag_list fox
-hello' @tag_list fox &     :: hello   @tag_list fox
+hello' @tag_list fox       :: @tag_list fox hello
+hello' @tag_list fox &     :: @tag_list fox hello
+@tag_list aa @tag_list bb  :: (@tag_list aa|@tag_list bb)
+@tag_list aa "cc dd" @tag_list "bb ee" :: (@tag_list aa|@tag_list "bb ee") "cc dd"
+tag:aa tag:bb              :: (@tag_list aa|@tag_list bb)
+tag: aa tag: "bb cc"       :: (@tag_list aa|@tag_list "bb cc")
 :: # blank string case

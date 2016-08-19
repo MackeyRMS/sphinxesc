@@ -9,7 +9,7 @@ import Data.List
 
 -- Main function
 escapeSphinxQueryString :: String -> String
-escapeSphinxQueryString s = intercalate " " . map expressionToString . parseQuery $ s
+escapeSphinxQueryString s = intercalate " " . map expressionToString . transformQuery . parseQuery $ s
 
 
 -- Just a simplified syntax tree. Besides this, all other input has its
@@ -18,6 +18,7 @@ escapeSphinxQueryString s = intercalate " " . map expressionToString . parseQuer
 
 data Expression = 
         TagFieldSearch String 
+      | TagFieldSearches [String]
       | Literal String
       | Phrase String
       | AndOrExpr Conj Expression Expression 
@@ -34,9 +35,14 @@ parseQuery  inp =
 
 -- escapes expression to string to pass to sphinx
 expressionToString :: Expression -> String
-expressionToString (TagFieldSearch s) = "@tag_list" ++ escapeString s
+expressionToString (TagFieldSearch s) = "@tag_list " ++ maybeQuote (escapeString s)
+expressionToString (TagFieldSearches xs)
+  | null xs = error "The impossible happened."
+  | length xs == 1 =  orTags
+  | otherwise      = "(" ++ orTags ++ ")"
+  where orTags = intercalate "|" . map (expressionToString . TagFieldSearch) $ xs
 expressionToString (Literal s) = escapeString s
-expressionToString (Phrase s) = "\"" ++ s ++ "\"" -- no need to escape the contents
+expressionToString (Phrase s) = quote s -- no need to escape the contents
 expressionToString (AndOrExpr c a b) = 
     let a' = expressionToString a 
         b' = expressionToString b
@@ -47,6 +53,12 @@ expressionToString (AndOrExpr c a b) =
         (False, True) -> a'
         (False, False) -> a' ++ c' ++ b'
         _  -> ""
+
+quote :: String -> String
+quote s = "\"" ++ s ++ "\""
+
+maybeQuote :: String -> String
+maybeQuote s = if any isSpace s then quote s else s
 
 conjToString :: Conj -> String
 conjToString And = " & "
@@ -60,6 +72,15 @@ escapeString s = map (stripAlphaNum) s
 stripAlphaNum :: Char -> Char
 stripAlphaNum s | isAlphaNum s = s
                 | otherwise = ' '
+
+transformQuery :: [Expression] -> [Expression]
+transformQuery xs = newTags ++ nontags
+  where
+    (tags, nontags) = partition isTagFieldSearch xs
+    tagNames = map (\(TagFieldSearch tn) -> tn) tags
+    newTags = if null tags then [] else [TagFieldSearches tagNames]
+    isTagFieldSearch (TagFieldSearch _) = True
+    isTagFieldSearch _                  = False
 
 
 type Parser' = ParsecT String () Identity 
@@ -76,10 +97,33 @@ expression :: Parser' Expression
 expression = (try andOrExpr) <|> try tagField <|> try phrase <|> literal 
 
 tagField :: Parser' Expression
-tagField = do
+tagField = newTagField <|> oldTagField
+
+oldTagField :: Parser' Expression
+oldTagField = do
    char '@'
    string "tag_list" <|> string "(tag_list)"
-   s <- manyTill anyChar (try literalStop)
+   many space
+   -- s <- manyTill anyChar (try literalStop)
+   x <- (try phrase <|> literal)
+   let
+     s = case x of
+       Phrase p  -> p
+       Literal l -> l
+       otherwise -> "" -- will never be returned (parse error)
+   return $ TagFieldSearch s
+
+newTagField :: Parser' Expression
+newTagField = do
+   string "tag:"
+   many space
+   -- s <- manyTill anyChar (try literalStop)
+   x <- (try phrase <|> literal)
+   let
+     s = case x of
+       Phrase p  -> p
+       Literal l -> l
+       otherwise -> "" -- will never be returned (parse error)
    return $ TagFieldSearch s
 
 
@@ -116,6 +160,7 @@ literalStop = (choice [
     lookAhead (tagField >> return ()) 
   , lookAhead (conjExpr >> return ())
   , lookAhead (phrase >> return ())
+  , (space >> return ())
   , eof
   ])
   <?> "literalStop"
@@ -123,7 +168,7 @@ literalStop = (choice [
 literal :: Parser' Expression
 literal = do
     a <- anyChar
-    notFollowedBy literalStop
+--    notFollowedBy literalStop
     xs <- manyTill anyChar (try literalStop)
     return . Literal $ a:xs
 
