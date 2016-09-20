@@ -5,12 +5,30 @@ import Data.Functor.Identity (Identity )
 import Text.Parsec hiding (many, (<|>)) 
 import Data.Char
 import Data.List
+import Data.List.Split (splitOn)
+import Data.String.Utils (strip)
  
 
 -- Main function
 escapeSphinxQueryString :: String -> String
-escapeSphinxQueryString s = intercalate " " . map expressionToString . transformQuery . parseQuery $ s
+escapeSphinxQueryString s = formatQuery . parseQuery $ s
 
+extractTagFilters :: [Expression] -> ([Expression], [Expression])
+extractTagFilters = partition isTagFieldSearch
+
+formatQuery :: [Expression] -> String
+formatQuery = strip . intercalate " " . map (strip . expressionToString)
+
+formatFilters :: [Expression] -> [String]
+formatFilters = map tagNameFromExpression
+
+isTagFieldSearch :: Expression -> Bool
+isTagFieldSearch (TagFieldSearch _) = True
+isTagFieldSearch _                  = False
+
+tagNameFromExpression :: Expression -> String
+tagNameFromExpression (TagFieldSearch t) = t
+tagNameFromExpression _                  = error "tagNameFromExpression: not tag"
 
 -- Just a simplified syntax tree. Besides this, all other input has its
 -- non-alphanumeric characters stripped, including double and single quotes and
@@ -18,10 +36,9 @@ escapeSphinxQueryString s = intercalate " " . map expressionToString . transform
 
 data Expression = 
         TagFieldSearch String 
-      | TagFieldSearches [String]
       | Literal String
       | Phrase String
-      | AndOrExpr Conj Expression Expression 
+--      | AndOrExpr Conj Expression Expression 
   deriving Show
 
 data Conj = And | Or
@@ -36,23 +53,18 @@ parseQuery  inp =
 -- escapes expression to string to pass to sphinx
 expressionToString :: Expression -> String
 expressionToString (TagFieldSearch s) = "@tag_list " ++ maybeQuote (escapeString s)
-expressionToString (TagFieldSearches xs)
-  | null xs = error "The impossible happened."
-  | length xs == 1 =  orTags
-  | otherwise      = "(" ++ orTags ++ ")"
-  where orTags = intercalate "|" . map (expressionToString . TagFieldSearch) $ xs
 expressionToString (Literal s) = escapeString s
 expressionToString (Phrase s) = quote s -- no need to escape the contents
-expressionToString (AndOrExpr c a b) = 
-    let a' = expressionToString a 
-        b' = expressionToString b
-        c' = conjToString c 
-    -- if either a' or b' is just whitespace, just choose one or the other
-    in case (all isSpace a', all isSpace b') of
-        (True, False) -> b'
-        (False, True) -> a'
-        (False, False) -> a' ++ c' ++ b'
-        _  -> ""
+--expressionToString (AndOrExpr c a b) = 
+--    let a' = expressionToString a 
+--        b' = expressionToString b
+--        c' = conjToString c 
+--    -- if either a' or b' is just whitespace, just choose one or the other
+--    in case (all isSpace a', all isSpace b') of
+--        (True, False) -> b'
+--        (False, True) -> a'
+--        (False, False) -> a' ++ c' ++ b'
+--        _  -> ""
 
 quote :: String -> String
 quote s = "\"" ++ s ++ "\""
@@ -73,15 +85,6 @@ stripAlphaNum :: Char -> Char
 stripAlphaNum s | isAlphaNum s = s
                 | otherwise = ' '
 
-transformQuery :: [Expression] -> [Expression]
-transformQuery xs = newTags ++ nontags
-  where
-    (tags, nontags) = partition isTagFieldSearch xs
-    tagNames = map (\(TagFieldSearch tn) -> tn) tags
-    newTags = if null tags then [] else [TagFieldSearches tagNames]
-    isTagFieldSearch (TagFieldSearch _) = True
-    isTagFieldSearch _                  = False
-
 
 type Parser' = ParsecT String () Identity 
 
@@ -94,15 +97,12 @@ topLevelExpression = do
 
 
 expression :: Parser' Expression
-expression = (try andOrExpr) <|> try tagField <|> try phrase <|> literal 
+-- expression = (try andOrExpr) <|> try tagField <|> try phrase <|> literal 
+expression = try tagField <|> try phrase <|> literal 
 
 tagField :: Parser' Expression
-tagField = newTagField <|> oldTagField
-
-oldTagField :: Parser' Expression
-oldTagField = do
-   char '@'
-   string "tag_list" <|> string "(tag_list)"
+tagField = do
+   try (string "tag:") <|> try (string "@(tag_list)") <|> string "@tag_list"
    many space
    -- s <- manyTill anyChar (try literalStop)
    x <- (try phrase <|> literal)
@@ -113,26 +113,12 @@ oldTagField = do
        otherwise -> "" -- will never be returned (parse error)
    return $ TagFieldSearch s
 
-newTagField :: Parser' Expression
-newTagField = do
-   string "tag:"
-   many space
-   -- s <- manyTill anyChar (try literalStop)
-   x <- (try phrase <|> literal)
-   let
-     s = case x of
-       Phrase p  -> p
-       Literal l -> l
-       otherwise -> "" -- will never be returned (parse error)
-   return $ TagFieldSearch s
-
-
-andOrExpr :: Parser' Expression
-andOrExpr = do 
-    a <- (try tagField <|> try phrase <|> literal)
-    x <- try conjExpr
-    b <- expression  -- recursion
-    return $ AndOrExpr x a b
+--andOrExpr :: Parser' Expression
+--andOrExpr = do 
+--    a <- (try tagField <|> try phrase <|> literal)
+--    x <- try conjExpr
+--    b <- expression  -- recursion
+--    return $ AndOrExpr x a b
 
 conjExpr :: Parser' Conj
 conjExpr = andExpr <|> orExpr
@@ -171,5 +157,4 @@ literal = do
 --    notFollowedBy literalStop
     xs <- manyTill anyChar (try literalStop)
     return . Literal $ a:xs
-
 
