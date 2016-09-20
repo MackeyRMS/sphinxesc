@@ -9,7 +9,14 @@ import Data.List.Split (splitOn)
 import Data.String.Utils (strip)
  
 
--- Main function
+transformQuery :: String -> ([String], String)
+transformQuery q = (tags, q')
+  where 
+    es = parseQuery q
+    (ts, qs) = extractTagFilters es
+    tags = formatFilters ts
+    q' = formatQuery qs
+
 escapeSphinxQueryString :: String -> String
 escapeSphinxQueryString s = formatQuery . parseQuery $ s
 
