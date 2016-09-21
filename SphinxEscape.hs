@@ -9,25 +9,28 @@ import Data.List.Split (splitOn)
 import Data.String.Utils (strip)
  
 
-transformQuery :: String -> ([String], String)
-transformQuery q = (tags, q')
+transformQuery :: String -> ([String], [String], String)
+transformQuery q = (tags, authors, q')
   where 
     es = parseQuery q
-    (ts, qs) = extractTagFilters es
-    tags = formatFilters ts
+    (ts, as, qs)    = extractFilters es
+    (tags, authors) = formatFilters ts as
     q' = formatQuery qs
 
 escapeSphinxQueryString :: String -> String
 escapeSphinxQueryString s = formatQuery . parseQuery $ s
 
-extractTagFilters :: [Expression] -> ([Expression], [Expression])
-extractTagFilters = partition isTagFilter
+extractFilters :: [Expression] -> ([Expression], [Expression], [Expression])
+extractFilters es = (tags, authors, query)
+  where
+    (tags, query)     = partition isTagFilter es
+    (authors, query') = partition isAuthorFilter query
 
 formatQuery :: [Expression] -> String
 formatQuery = strip . intercalate " " . map (strip . expressionToString)
 
-formatFilters :: [Expression] -> [String]
-formatFilters = map tagNameFromExpression
+formatFilters :: [Expression] -> [Expression] -> ([String], [String])
+formatFilters ts as = (map tagNameFromExpression ts, map authorNameFromExpression as)
 
 isTagFilter :: Expression -> Bool
 isTagFilter (TagFilter _) = True
@@ -37,12 +40,21 @@ tagNameFromExpression :: Expression -> String
 tagNameFromExpression (TagFilter t) = t
 tagNameFromExpression _             = error "tagNameFromExpression: not tag"
 
+isAuthorFilter :: Expression -> Bool
+isAuthorFilter (AuthorFilter _) = True
+isAuthorFilter _                = False
+
+authorNameFromExpression :: Expression -> String
+authorNameFromExpression (AuthorFilter t) = t
+authorNameFromExpression _                = error "authorNameFromExpression: not author"
+
 -- Just a simplified syntax tree. Besides this, all other input has its
 -- non-alphanumeric characters stripped, including double and single quotes and
 -- parentheses
 
 data Expression = 
         TagFilter String
+      | AuthorFilter String
       | Literal String
       | Phrase String
 --      | AndOrExpr Conj Expression Expression 
@@ -59,9 +71,10 @@ parseQuery  inp =
 
 -- escapes expression to string to pass to sphinx
 expressionToString :: Expression -> String
-expressionToString (TagFilter s) = "@tag_list " ++ maybeQuote (escapeString s)
-expressionToString (Literal s)   = escapeString s
-expressionToString (Phrase s)    = quote s -- no need to escape the contents
+expressionToString (TagFilter s)    = "tag:" ++ maybeQuote (escapeString s)
+expressionToString (AuthorFilter s) = "author:" ++ maybeQuote (escapeString s)
+expressionToString (Literal s)      = escapeString s
+expressionToString (Phrase s)       = quote s -- no need to escape the contents
 --expressionToString (AndOrExpr c a b) = 
 --    let a' = expressionToString a 
 --        b' = expressionToString b
@@ -98,17 +111,17 @@ type Parser' = ParsecT String () Identity
 -- | can be literal or tag field or nothing, followed an expression
 topLevelExpression :: Parser' [Expression]
 topLevelExpression = do
-    a <- option [] ((:[]) <$> (tagField <|> literal))
+    a <- option [] ((:[]) <$> (tagFilter <|> authorFilter <|> literal))
     xs <- many expression
     return $ a ++ xs
 
 
 expression :: Parser' Expression
--- expression = (try andOrExpr) <|> try tagField <|> try phrase <|> literal 
-expression = try tagField <|> try phrase <|> literal 
+-- expression = (try andOrExpr) <|> try tagFilter <|> try phrase <|> literal 
+expression = try tagFilter <|> try authorFilter <|> try phrase <|> literal 
 
-tagField :: Parser' Expression
-tagField = do
+tagFilter :: Parser' Expression
+tagFilter = do
    try (string "tag:") <|> try (string "@(tag_list)") <|> string "@tag_list"
    many space
    -- s <- manyTill anyChar (try literalStop)
@@ -120,9 +133,22 @@ tagField = do
        otherwise -> "" -- will never be returned (parse error)
    return $ TagFilter s
 
+authorFilter :: Parser' Expression
+authorFilter = do
+   string "author:"
+   many space
+   -- s <- manyTill anyChar (try literalStop)
+   x <- (try phrase <|> literal)
+   let
+     s = case x of
+       Phrase p  -> p
+       Literal l -> l
+       otherwise -> "" -- will never be returned (parse error)
+   return $ AuthorFilter s
+
 --andOrExpr :: Parser' Expression
 --andOrExpr = do 
---    a <- (try tagField <|> try phrase <|> literal)
+--    a <- (try tagFilter <|> try phrase <|> literal)
 --    x <- try conjExpr
 --    b <- expression  -- recursion
 --    return $ AndOrExpr x a b
@@ -150,7 +176,8 @@ phrase = do
 
 literalStop :: Parser' ()
 literalStop = (choice [ 
-    lookAhead (tagField >> return ()) 
+    lookAhead (tagFilter >> return ()) 
+  , lookAhead (authorFilter >> return ()) 
 --   , lookAhead (conjExpr >> return ())
   , lookAhead (phrase >> return ())
   , (space >> return ())

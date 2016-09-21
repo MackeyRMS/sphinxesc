@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards, ScopedTypeVariables #-} 
 module Main where
-import SphinxEscape (escapeSphinxQueryString, parseQuery, extractTagFilters
+import SphinxEscape (escapeSphinxQueryString, parseQuery, extractFilters
                     ,formatQuery, formatFilters)
 import System.Environment
 import Data.List
@@ -39,14 +39,17 @@ main = do
   Options{..} <- execParser opt
   input <- maybe getContents return optInput
   let p = parseQuery input
-      (ts, qs) = extractTagFilters p
-      (tags, q) = (formatFilters ts, formatQuery qs)
+      (ts, as, qs)    = extractFilters p
+      (tags, authors) = formatFilters ts as
+      q               = formatQuery qs
   case optMode of 
       Extract -> do
-        let output = extractTagFilters . parseQuery $ input
+        let output = extractFilters . parseQuery $ input
         putStrLn $ show output
       Convert -> do
-        let output = q ++ (if null tags then "" else (" " ++ show tags))
+        let tagsStr    = if null tags then "" else (" " ++ show tags)
+            authorsStr = if null authors then "" else (" " ++ show authors)
+            output     = q ++ tagsStr ++ authorsStr
         putStrLn output
       Parse -> do
         print $ parseQuery input
