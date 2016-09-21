@@ -1,3 +1,4 @@
+#/bin/bash
 printf "%-30s%-30s%-30s%-10s\n" INPUT EXPECTED RESULT PASS
 cat tests.txt | grep -v '^#' | grep -v '^ *$' | # skip blank lines
 sed -e 's/ *#.*$//' -e 's/ *$//' |              # clear comments and whitespace

@@ -21,7 +21,7 @@ escapeSphinxQueryString :: String -> String
 escapeSphinxQueryString s = formatQuery . parseQuery $ s
 
 extractFilters :: [Expression] -> ([Expression], [Expression], [Expression])
-extractFilters es = (tags, authors, query)
+extractFilters es = (tags, authors, query')
   where
     (tags, query)     = partition isTagFilter es
     (authors, query') = partition isAuthorFilter query

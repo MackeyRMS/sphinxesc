@@ -47,9 +47,10 @@ main = do
         let output = extractFilters . parseQuery $ input
         putStrLn $ show output
       Convert -> do
-        let tagsStr    = if null tags then "" else (" " ++ show tags)
-            authorsStr = if null authors then "" else (" " ++ show authors)
-            output     = q ++ tagsStr ++ authorsStr
+        let indent     = if null q then "" else " "
+            tagsStr    = show tags
+            authorsStr = show authors
+            output     = q ++ indent ++ tagsStr ++ authorsStr
         putStrLn output
       Parse -> do
         print $ parseQuery input
