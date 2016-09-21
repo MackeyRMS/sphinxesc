@@ -21,7 +21,7 @@ escapeSphinxQueryString :: String -> String
 escapeSphinxQueryString s = formatQuery . parseQuery $ s
 
 extractTagFilters :: [Expression] -> ([Expression], [Expression])
-extractTagFilters = partition isTagFieldSearch
+extractTagFilters = partition isTagFilter
 
 formatQuery :: [Expression] -> String
 formatQuery = strip . intercalate " " . map (strip . expressionToString)
@@ -29,20 +29,20 @@ formatQuery = strip . intercalate " " . map (strip . expressionToString)
 formatFilters :: [Expression] -> [String]
 formatFilters = map tagNameFromExpression
 
-isTagFieldSearch :: Expression -> Bool
-isTagFieldSearch (TagFieldSearch _) = True
-isTagFieldSearch _                  = False
+isTagFilter :: Expression -> Bool
+isTagFilter (TagFilter _) = True
+isTagFilter _             = False
 
 tagNameFromExpression :: Expression -> String
-tagNameFromExpression (TagFieldSearch t) = t
-tagNameFromExpression _                  = error "tagNameFromExpression: not tag"
+tagNameFromExpression (TagFilter t) = t
+tagNameFromExpression _             = error "tagNameFromExpression: not tag"
 
 -- Just a simplified syntax tree. Besides this, all other input has its
 -- non-alphanumeric characters stripped, including double and single quotes and
 -- parentheses
 
 data Expression = 
-        TagFieldSearch String 
+        TagFilter String
       | Literal String
       | Phrase String
 --      | AndOrExpr Conj Expression Expression 
@@ -59,9 +59,9 @@ parseQuery  inp =
 
 -- escapes expression to string to pass to sphinx
 expressionToString :: Expression -> String
-expressionToString (TagFieldSearch s) = "@tag_list " ++ maybeQuote (escapeString s)
-expressionToString (Literal s) = escapeString s
-expressionToString (Phrase s) = quote s -- no need to escape the contents
+expressionToString (TagFilter s) = "@tag_list " ++ maybeQuote (escapeString s)
+expressionToString (Literal s)   = escapeString s
+expressionToString (Phrase s)    = quote s -- no need to escape the contents
 --expressionToString (AndOrExpr c a b) = 
 --    let a' = expressionToString a 
 --        b' = expressionToString b
@@ -118,7 +118,7 @@ tagField = do
        Phrase p  -> p
        Literal l -> l
        otherwise -> "" -- will never be returned (parse error)
-   return $ TagFieldSearch s
+   return $ TagFilter s
 
 --andOrExpr :: Parser' Expression
 --andOrExpr = do 
