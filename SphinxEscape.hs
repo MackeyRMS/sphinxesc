@@ -127,20 +127,20 @@ tagField = do
 --    b <- expression  -- recursion
 --    return $ AndOrExpr x a b
 
-conjExpr :: Parser' Conj
-conjExpr = andExpr <|> orExpr
+-- conjExpr :: Parser' Conj
+-- conjExpr = andExpr <|> orExpr
+-- 
+-- andExpr :: Parser' Conj
+-- andExpr = mkConjExpr ["and", "AND", "&"] And
+-- 
+-- orExpr :: Parser' Conj
+-- orExpr = mkConjExpr ["or", "OR", "|"] Or
 
-andExpr :: Parser' Conj
-andExpr = mkConjExpr ["and", "AND", "&"] And
 
-orExpr :: Parser' Conj
-orExpr = mkConjExpr ["or", "OR", "|"] Or
-
-
-mkConjExpr :: [String] -> Conj -> Parser' Conj
-mkConjExpr xs t = 
-    try (many1 space >> choice (map (string . (++" ")) xs))
-    >> return t
+-- mkConjExpr :: [String] -> Conj -> Parser' Conj
+-- mkConjExpr xs t = 
+--     try (many1 space >> choice (map (string . (++" ")) xs))
+--     >> return t
 
 phrase :: Parser' Expression
 phrase = do
@@ -151,7 +151,7 @@ phrase = do
 literalStop :: Parser' ()
 literalStop = (choice [ 
     lookAhead (tagField >> return ()) 
-  , lookAhead (conjExpr >> return ())
+--   , lookAhead (conjExpr >> return ())
   , lookAhead (phrase >> return ())
   , (space >> return ())
   , eof
