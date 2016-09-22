@@ -15,10 +15,7 @@ transformQuery q = (ts', as', q')
   where 
     (ts, as, qs) = extractFilters $ parseQuery q
     (ts', as')   = formatFilters ts as
-    q'           = formatQuery qs
-
-escapeSphinxQueryString :: String -> String
-escapeSphinxQueryString = formatQuery . parseQuery
+    q'           = formatQuery . parseQuery' . formatQuery $ qs
 
 extractFilters :: [Expression] -> ([Expression], [Expression], [Expression])
 extractFilters es = (ts, as, q')
@@ -27,7 +24,10 @@ extractFilters es = (ts, as, q')
     (as, q') = partition isAuthorFilter q
 
 formatQuery :: [Expression] -> String
-formatQuery = strip . intercalate " " . map (strip . expressionToString)
+formatQuery = strip . intercalate " " . map (strip . rawString)
+
+formatQuery' :: [Expression] -> String
+formatQuery' = strip . intercalate " " . map (strip . expressionToString)
 
 formatFilters :: [Expression] -> [Expression] -> ([String], [String])
 formatFilters ts as = (map tagNameFromExpression ts, map authorNameFromExpression as)
@@ -57,7 +57,7 @@ data Expression =
       | AuthorFilter String
       | Literal String
       | Phrase String
---      | AndOrExpr Conj Expression Expression 
+      | AndOrExpr Conj Expression Expression
   deriving Show
 
 data Conj = And | Or
@@ -69,22 +69,44 @@ parseQuery  inp =
     Left x   -> error $ "parser failed: " ++ show x
     Right xs -> xs
 
+parseQuery' :: String -> [Expression]
+parseQuery'  inp =
+  case Text.Parsec.parse (many expression') "" inp of
+    Left x   -> error $ "parser failed: " ++ show x
+    Right xs -> xs
+
+rawString :: Expression -> String
+rawString (TagFilter s)    = "tag:" ++ maybeQuote s
+rawString (AuthorFilter s) = "author:" ++ maybeQuote s
+rawString (Literal s)      = s
+rawString (Phrase s)       = quote s -- no need to escape the contents
+rawString (AndOrExpr c a b) =
+   let a' = rawString a
+       b' = rawString b
+       c' = conjToString c
+   -- if either a' or b' is just whitespace, just choose one or the other
+   in case (all isSpace a', all isSpace b') of
+       (True, False) -> b'
+       (False, True) -> a'
+       (False, False) -> a' ++ c' ++ b'
+       _  -> ""
+
 -- escapes expression to string to pass to sphinx
 expressionToString :: Expression -> String
 expressionToString (TagFilter s)    = "tag:" ++ maybeQuote (escapeString s)
 expressionToString (AuthorFilter s) = "author:" ++ maybeQuote (escapeString s)
 expressionToString (Literal s)      = escapeString s
 expressionToString (Phrase s)       = quote s -- no need to escape the contents
---expressionToString (AndOrExpr c a b) = 
---    let a' = expressionToString a 
---        b' = expressionToString b
---        c' = conjToString c 
---    -- if either a' or b' is just whitespace, just choose one or the other
---    in case (all isSpace a', all isSpace b') of
---        (True, False) -> b'
---        (False, True) -> a'
---        (False, False) -> a' ++ c' ++ b'
---        _  -> ""
+expressionToString (AndOrExpr c a b) =
+   let a' = expressionToString a
+       b' = expressionToString b
+       c' = conjToString c
+   -- if either a' or b' is just whitespace, just choose one or the other
+   in case (all isSpace a', all isSpace b') of
+       (True, False) -> b'
+       (False, True) -> a'
+       (False, False) -> a' ++ c' ++ b'
+       _  -> ""
 
 quote :: String -> String
 quote s = "\"" ++ s ++ "\""
@@ -108,15 +130,16 @@ stripAlphaNum s | isAlphaNum s = s
 
 type Parser' = ParsecT String () Identity 
 
+-----------------------------------------------------------------------
+-- Parse filters
+
 expression :: Parser' Expression
--- expression = (try andOrExpr) <|> try tagFilter <|> try phrase <|> literal 
 expression = try tagFilter <|> try authorFilter <|> try phrase <|> literal 
 
 tagFilter :: Parser' Expression
 tagFilter = do
    try (string "tag:") <|> try (string "@(tag_list)") <|> string "@tag_list"
    many space
-   -- s <- manyTill anyChar (try literalStop)
    x <- (try phrase <|> literal)
    let
      s = case x of
@@ -129,7 +152,6 @@ authorFilter :: Parser' Expression
 authorFilter = do
    string "author:"
    many space
-   -- s <- manyTill anyChar (try literalStop)
    x <- (try phrase <|> literal)
    let
      s = case x of
@@ -137,28 +159,6 @@ authorFilter = do
        Literal l -> l
        otherwise -> "" -- will never be returned (parse error)
    return $ AuthorFilter s
-
---andOrExpr :: Parser' Expression
---andOrExpr = do 
---    a <- (try tagFilter <|> try phrase <|> literal)
---    x <- try conjExpr
---    b <- expression  -- recursion
---    return $ AndOrExpr x a b
-
--- conjExpr :: Parser' Conj
--- conjExpr = andExpr <|> orExpr
--- 
--- andExpr :: Parser' Conj
--- andExpr = mkConjExpr ["and", "AND", "&"] And
--- 
--- orExpr :: Parser' Conj
--- orExpr = mkConjExpr ["or", "OR", "|"] Or
-
-
--- mkConjExpr :: [String] -> Conj -> Parser' Conj
--- mkConjExpr xs t = 
---     try (many1 space >> choice (map (string . (++" ")) xs))
---     >> return t
 
 phrase :: Parser' Expression
 phrase = do
@@ -170,7 +170,6 @@ literalStop :: Parser' ()
 literalStop = (choice [ 
     lookAhead (tagFilter >> return ()) 
   , lookAhead (authorFilter >> return ()) 
---   , lookAhead (conjExpr >> return ())
   , lookAhead (phrase >> return ())
   , (space >> return ())
   , eof
@@ -180,7 +179,48 @@ literalStop = (choice [
 literal :: Parser' Expression
 literal = do
     a  <- anyChar
---    notFollowedBy literalStop
     xs <- manyTill anyChar (try literalStop)
+    return . Literal $ a:xs
+
+-----------------------------------------------------------------------
+-- Parse query string
+
+expression' :: Parser' Expression
+expression' = try andOrExpr <|> try phrase <|> literal'
+
+andOrExpr :: Parser' Expression
+andOrExpr = do 
+   a <- (try phrase <|> literal')
+   x <- try conjExpr
+   b <- expression'  -- recursion
+   return $ AndOrExpr x a b
+
+conjExpr :: Parser' Conj
+conjExpr = andExpr <|> orExpr
+
+andExpr :: Parser' Conj
+andExpr = mkConjExpr ["and", "AND", "&"] And
+
+orExpr :: Parser' Conj
+orExpr = mkConjExpr ["|", "or", "OR"] Or
+
+mkConjExpr :: [String] -> Conj -> Parser' Conj
+mkConjExpr xs t = 
+    try (many1 space >> choice (map (string . (++" ")) xs))
+    >> return t
+
+literalStop' :: Parser' ()
+literalStop' = (choice [
+    lookAhead (conjExpr >> return ())
+  , lookAhead (phrase >> return ())
+  , (space >> return ())
+  , eof
+  ])
+  <?> "literalStop'"
+
+literal' :: Parser' Expression
+literal' = do
+    a  <- anyChar
+    xs <- manyTill anyChar (try literalStop')
     return . Literal $ a:xs
 

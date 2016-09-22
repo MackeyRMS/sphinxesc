@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards, ScopedTypeVariables #-} 
 module Main where
-import SphinxEscape (escapeSphinxQueryString, parseQuery, extractFilters
-                    ,formatQuery, formatFilters)
+import SphinxEscape (parseQuery, parseQuery', extractFilters
+                    ,formatQuery, formatQuery', formatFilters
+                    ,transformQuery)
 import System.Environment
 import Data.List
 import Options.Applicative
@@ -13,7 +14,7 @@ data Options = Options {
   , optInput :: Maybe String
   }
 
-data Mode = Convert | Parse | Extract deriving Read
+data Mode = Convert | Parse | Extract | Transform deriving Read
 
 mode :: Parser Options
 mode = Options
@@ -22,7 +23,7 @@ mode = Options
           (
              (long "mode" <>
               short 'm' <>
-              help "Mode [Convert | Parse | Extract]" <>
+              help "Mode [Convert | Parse | Extract | Transform]" <>
               value "Convert")
           ))
       )
@@ -41,19 +42,19 @@ main = do
   let p = parseQuery input
       (ts, as, qs)    = extractFilters p
       (tags, authors) = formatFilters ts as
-      q               = formatQuery qs
+      q               = formatQuery $ qs
+      p'              = parseQuery' q
+      q'              = formatQuery' p'
   case optMode of 
-      Extract -> do
-        let output = extractFilters . parseQuery $ input
-        putStrLn $ show output
-      Convert -> do
-        let indent     = if null q then "" else " "
+      Transform -> let (_, _, q) = transformQuery input in putStrLn q
+      Parse     -> print p >> print p'
+      Extract   -> putStrLn $ show $ (ts, as, qs)
+      Convert   -> do
+        let indent     = if null q' then "" else " "
             tagsStr    = show tags
             authorsStr = show authors
-            output     = if null q && null tags && null authors
+            output     = if null q' && null tags && null authors
                            then ""
-                           else q ++ indent ++ tagsStr ++ authorsStr
+                           else q' ++ indent ++ tagsStr ++ authorsStr
         putStrLn output
-      Parse -> do
-        print $ parseQuery input
   
