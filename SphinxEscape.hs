@@ -1,30 +1,30 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards, ScopedTypeVariables, FlexibleContexts #-} 
 module SphinxEscape where
 import Control.Applicative
-import Data.Functor.Identity (Identity )
-import Text.Parsec hiding (many, (<|>)) 
 import Data.Char
+import Data.Functor.Identity (Identity)
 import Data.List
-import Data.List.Split (splitOn)
 import Data.String.Utils (strip)
+import Text.Parsec hiding (many, (<|>)) 
  
-
-transformQuery :: String -> ([String], [String], String)
-transformQuery q = (tags, authors, q')
+-- | Extract tag and author filters and prepare resulting
+--   query string for submission to Sphinx.
+transformQuery :: String                        -- ^ Original query string
+               -> ([String], [String], String)  -- ^ tag names, author names, query
+transformQuery q = (ts', as', q')
   where 
-    es = parseQuery q
-    (ts, as, qs)    = extractFilters es
-    (tags, authors) = formatFilters ts as
-    q' = formatQuery qs
+    (ts, as, qs) = extractFilters $ parseQuery q
+    (ts', as')   = formatFilters ts as
+    q'           = formatQuery qs
 
 escapeSphinxQueryString :: String -> String
-escapeSphinxQueryString s = formatQuery . parseQuery $ s
+escapeSphinxQueryString = formatQuery . parseQuery
 
 extractFilters :: [Expression] -> ([Expression], [Expression], [Expression])
-extractFilters es = (tags, authors, query')
+extractFilters es = (ts, as, q')
   where
-    (tags, query)     = partition isTagFilter es
-    (authors, query') = partition isAuthorFilter query
+    (ts, q)  = partition isTagFilter es
+    (as, q') = partition isAuthorFilter q
 
 formatQuery :: [Expression] -> String
 formatQuery = strip . intercalate " " . map (strip . expressionToString)
@@ -66,7 +66,7 @@ data Conj = And | Or
 parseQuery :: String -> [Expression]
 parseQuery  inp =
   case Text.Parsec.parse (many expression) "" inp of
-    Left x -> error $ "parser failed: " ++ show x
+    Left x   -> error $ "parser failed: " ++ show x
     Right xs -> xs
 
 -- escapes expression to string to pass to sphinx
@@ -94,27 +94,19 @@ maybeQuote s = if any isSpace s then quote s else s
 
 conjToString :: Conj -> String
 conjToString And = " & "
-conjToString Or = " | "
+conjToString Or  = " | "
 
 -- removes all non-alphanumerics from literal strings that could be parsed
 -- mistakenly as Sphinx Extended Query operators
 escapeString :: String -> String
-escapeString s = map (stripAlphaNum) s
+escapeString = map stripAlphaNum
 
 stripAlphaNum :: Char -> Char
 stripAlphaNum s | isAlphaNum s = s
-                | otherwise = ' '
+                | otherwise    = ' '
 
 
 type Parser' = ParsecT String () Identity 
-
--- | can be literal or tag field or nothing, followed an expression
-topLevelExpression :: Parser' [Expression]
-topLevelExpression = do
-    a <- option [] ((:[]) <$> (tagFilter <|> authorFilter <|> literal))
-    xs <- many expression
-    return $ a ++ xs
-
 
 expression :: Parser' Expression
 -- expression = (try andOrExpr) <|> try tagFilter <|> try phrase <|> literal 
@@ -170,7 +162,7 @@ authorFilter = do
 
 phrase :: Parser' Expression
 phrase = do
-    _ <- char '"'
+    char '"'
     xs <- manyTill anyChar (char '"')
     return . Phrase $ xs
 
@@ -187,7 +179,7 @@ literalStop = (choice [
 
 literal :: Parser' Expression
 literal = do
-    a <- anyChar
+    a  <- anyChar
 --    notFollowedBy literalStop
     xs <- manyTill anyChar (try literalStop)
     return . Literal $ a:xs
