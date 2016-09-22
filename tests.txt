@@ -26,4 +26,4 @@ tag:aa tag:bb              :: ["aa","bb"][]
 tag: aa tag: "bb cc"       :: ["aa","bb cc"][]
 author:aa author:bb        :: []["aa","bb"]
 tag: aa author: "bb cc"    :: ["aa"]["bb cc"]
-:: [][] # blank string case
+:: # blank string case -- special-case of empty output

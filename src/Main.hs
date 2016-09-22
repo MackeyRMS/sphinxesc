@@ -50,7 +50,9 @@ main = do
         let indent     = if null q then "" else " "
             tagsStr    = show tags
             authorsStr = show authors
-            output     = q ++ indent ++ tagsStr ++ authorsStr
+            output     = if null q && null tags && null authors
+                           then ""
+                           else q ++ indent ++ tagsStr ++ authorsStr
         putStrLn output
       Parse -> do
         print $ parseQuery input
