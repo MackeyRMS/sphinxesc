@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, RecordWildCards, ScopedTypeVariables #-} 
 module Main where
-import SphinxEscape (parseQuery, parseQuery', extractFilters
-                    ,formatQuery, formatQuery', formatFilters
+import SphinxEscape (parseFilters, parseQueryNoFilters, extractFilters
+                    ,formatQueryNoEscaping, formatQuery, formatFilters
                     ,transformQuery)
 import System.Environment
 import Data.List
@@ -39,12 +39,12 @@ opt = info (helper <*> mode) (header "sphinxesc")
 main = do
   Options{..} <- execParser opt
   input <- maybe getContents return optInput
-  let p = parseQuery input
+  let p = parseFilters input
       (ts, as, qs)    = extractFilters p
       (tags, authors) = formatFilters ts as
-      q               = formatQuery $ qs
-      p'              = parseQuery' q
-      q'              = formatQuery' p'
+      q               = formatQueryNoEscaping $ qs
+      p'              = parseQueryNoFilters q
+      q'              = formatQuery p'
   case optMode of 
       Transform -> let (_, _, q) = transformQuery input in putStrLn q
       Parse     -> print p >> print p'

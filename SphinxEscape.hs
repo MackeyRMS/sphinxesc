@@ -13,9 +13,9 @@ transformQuery :: String                        -- ^ Original query string
                -> ([String], [String], String)  -- ^ tag names, author names, query
 transformQuery q = (ts', as', q')
   where 
-    (ts, as, qs) = extractFilters $ parseQuery q
+    (ts, as, qs) = extractFilters $ parseFilters q
     (ts', as')   = formatFilters ts as
-    q'           = formatQuery . parseQuery' . formatQuery $ qs
+    q'           = formatQuery . parseQueryNoFilters $ formatQueryNoEscaping qs
 
 extractFilters :: [Expression] -> ([Expression], [Expression], [Expression])
 extractFilters es = (ts, as, q')
@@ -23,30 +23,21 @@ extractFilters es = (ts, as, q')
     (ts, q)  = partition isTagFilter es
     (as, q') = partition isAuthorFilter q
 
-formatQuery :: [Expression] -> String
-formatQuery = strip . intercalate " " . map (strip . rawString)
-
-formatQuery' :: [Expression] -> String
-formatQuery' = strip . intercalate " " . map (strip . expressionToString)
-
 formatFilters :: [Expression] -> [Expression] -> ([String], [String])
 formatFilters ts as = (map tagNameFromExpression ts, map authorNameFromExpression as)
 
-isTagFilter :: Expression -> Bool
-isTagFilter (TagFilter _) = True
-isTagFilter _             = False
+formatQueryWith :: (Expression -> String) -> [Expression] -> String
+formatQueryWith f = strip . intercalate " " . map (strip . f)
 
-tagNameFromExpression :: Expression -> String
-tagNameFromExpression (TagFilter t) = t
-tagNameFromExpression _             = error "tagNameFromExpression: not tag"
+-- Format query expressions without escaping special characters.
+-- This allows a second pass to recognize boolean operators
+-- as special characters or words.
+formatQueryNoEscaping :: [Expression] -> String
+formatQueryNoEscaping = formatQueryWith toStringNoEscaping
 
-isAuthorFilter :: Expression -> Bool
-isAuthorFilter (AuthorFilter _) = True
-isAuthorFilter _                = False
-
-authorNameFromExpression :: Expression -> String
-authorNameFromExpression (AuthorFilter t) = t
-authorNameFromExpression _                = error "authorNameFromExpression: not author"
+-- Format query expressions with escaping of special characters.
+formatQuery :: [Expression] -> String
+formatQuery = formatQueryWith toString
 
 -- Just a simplified syntax tree. Besides this, all other input has its
 -- non-alphanumeric characters stripped, including double and single quotes and
@@ -60,51 +51,38 @@ data Expression =
       | AndOrExpr Conj Expression Expression
   deriving Show
 
-data Conj = And | Or
-  deriving Show
+data Conj = And | Or deriving Show
 
-parseQuery :: String -> [Expression]
-parseQuery  inp =
-  case Text.Parsec.parse (many expression) "" inp of
-    Left x   -> error $ "parser failed: " ++ show x
-    Right xs -> xs
-
-parseQuery' :: String -> [Expression]
-parseQuery'  inp =
-  case Text.Parsec.parse (many expression') "" inp of
-    Left x   -> error $ "parser failed: " ++ show x
-    Right xs -> xs
-
-rawString :: Expression -> String
-rawString (TagFilter s)    = "tag:" ++ maybeQuote s
-rawString (AuthorFilter s) = "author:" ++ maybeQuote s
-rawString (Literal s)      = s
-rawString (Phrase s)       = quote s -- no need to escape the contents
-rawString (AndOrExpr c a b) =
-   let a' = rawString a
-       b' = rawString b
+toStringNoEscaping :: Expression -> String
+toStringNoEscaping (TagFilter s)     = "tag:" ++ maybeQuote s
+toStringNoEscaping (AuthorFilter s)  = "author:" ++ maybeQuote s
+toStringNoEscaping (Literal s)       = s
+toStringNoEscaping (Phrase s)        = quote s -- no need to escape the contents
+toStringNoEscaping (AndOrExpr c a b) =
+   let a' = toStringNoEscaping a
+       b' = toStringNoEscaping b
        c' = conjToString c
    -- if either a' or b' is just whitespace, just choose one or the other
    in case (all isSpace a', all isSpace b') of
-       (True, False) -> b'
-       (False, True) -> a'
+       (True, False)  -> b'
+       (False, True)  -> a'
        (False, False) -> a' ++ c' ++ b'
        _  -> ""
 
 -- escapes expression to string to pass to sphinx
-expressionToString :: Expression -> String
-expressionToString (TagFilter s)    = "tag:" ++ maybeQuote (escapeString s)
-expressionToString (AuthorFilter s) = "author:" ++ maybeQuote (escapeString s)
-expressionToString (Literal s)      = escapeString s
-expressionToString (Phrase s)       = quote s -- no need to escape the contents
-expressionToString (AndOrExpr c a b) =
-   let a' = expressionToString a
-       b' = expressionToString b
+toString :: Expression -> String
+toString (TagFilter s)     = "tag:" ++ maybeQuote (escapeString s)
+toString (AuthorFilter s)  = "author:" ++ maybeQuote (escapeString s)
+toString (Literal s)       = escapeString s
+toString (Phrase s)        = quote s -- no need to escape the contents
+toString (AndOrExpr c a b) =
+   let a' = toString a
+       b' = toString b
        c' = conjToString c
    -- if either a' or b' is just whitespace, just choose one or the other
    in case (all isSpace a', all isSpace b') of
-       (True, False) -> b'
-       (False, True) -> a'
+       (True, False)  -> b'
+       (False, True)  -> a'
        (False, False) -> a' ++ c' ++ b'
        _  -> ""
 
@@ -128,13 +106,19 @@ stripAlphaNum s | isAlphaNum s = s
                 | otherwise    = ' '
 
 
-type Parser' = ParsecT String () Identity 
-
 -----------------------------------------------------------------------
 -- Parse filters
 
-expression :: Parser' Expression
-expression = try tagFilter <|> try authorFilter <|> try phrase <|> literal 
+type Parser' = ParsecT String () Identity 
+
+parseFilters :: String -> [Expression]
+parseFilters inp =
+  case Text.Parsec.parse (many filtersAndLiterals) "" inp of
+    Left x   -> error $ "parser failed: " ++ show x
+    Right xs -> xs
+
+filtersAndLiterals :: Parser' Expression
+filtersAndLiterals = try tagFilter <|> try authorFilter <|> try phrase <|> literal 
 
 tagFilter :: Parser' Expression
 tagFilter = do
@@ -183,16 +167,22 @@ literal = do
     return . Literal $ a:xs
 
 -----------------------------------------------------------------------
--- Parse query string
+-- Parse query string after tag and author filters have been removed.
 
-expression' :: Parser' Expression
-expression' = try andOrExpr <|> try phrase <|> literal'
+parseQueryNoFilters :: String -> [Expression]
+parseQueryNoFilters inp =
+  case Text.Parsec.parse (many expressionNoFilters) "" inp of
+    Left x   -> error $ "parser failed: " ++ show x
+    Right xs -> xs
+
+expressionNoFilters :: Parser' Expression
+expressionNoFilters = try andOrExpr <|> try phrase <|> literalNoFilters
 
 andOrExpr :: Parser' Expression
 andOrExpr = do 
-   a <- (try phrase <|> literal')
+   a <- (try phrase <|> literalNoFilters)
    x <- try conjExpr
-   b <- expression'  -- recursion
+   b <- expressionNoFilters  -- recursion
    return $ AndOrExpr x a b
 
 conjExpr :: Parser' Conj
@@ -202,25 +192,44 @@ andExpr :: Parser' Conj
 andExpr = mkConjExpr ["and", "AND", "&"] And
 
 orExpr :: Parser' Conj
-orExpr = mkConjExpr ["|", "or", "OR"] Or
+orExpr = mkConjExpr ["or", "OR", "|"] Or
 
 mkConjExpr :: [String] -> Conj -> Parser' Conj
 mkConjExpr xs t = 
     try (many1 space >> choice (map (string . (++" ")) xs))
     >> return t
 
-literalStop' :: Parser' ()
-literalStop' = (choice [
+literalStopNoFilters :: Parser' ()
+literalStopNoFilters = (choice [
     lookAhead (conjExpr >> return ())
   , lookAhead (phrase >> return ())
   , (space >> return ())
   , eof
   ])
-  <?> "literalStop'"
+  <?> "literalStopNoFilters'"
 
-literal' :: Parser' Expression
-literal' = do
+literalNoFilters :: Parser' Expression
+literalNoFilters = do
     a  <- anyChar
-    xs <- manyTill anyChar (try literalStop')
+    xs <- manyTill anyChar (try literalStopNoFilters)
     return . Literal $ a:xs
+
+-----------------------------------------------------------------------
+-- Helper functions
+
+isTagFilter :: Expression -> Bool
+isTagFilter (TagFilter _) = True
+isTagFilter _             = False
+
+tagNameFromExpression :: Expression -> String
+tagNameFromExpression (TagFilter t) = t
+tagNameFromExpression _             = error "tagNameFromExpression: not tag"
+
+isAuthorFilter :: Expression -> Bool
+isAuthorFilter (AuthorFilter _) = True
+isAuthorFilter _                = False
+
+authorNameFromExpression :: Expression -> String
+authorNameFromExpression (AuthorFilter t) = t
+authorNameFromExpression _                = error "authorNameFromExpression: not author"
 
