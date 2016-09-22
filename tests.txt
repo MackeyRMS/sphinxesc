@@ -1,23 +1,30 @@
-7/11                       :: 7 11
-hello 7/11                 :: hello 7 11
-hello OR 7/11              :: hello | 7 11
-hello or 7/11              :: hello | 7 11
-hello | 7/11               :: hello | 7 11
-hello AND 7/11             :: hello & 7 11
-@tag_list fox tango 7/11   :: @tag_list fox tango 7 11
-@(tag_list) fox tango 7/11 :: @tag_list fox tango 7 11  # multi field search expression with one field
-@(tag_list) AND            :: @tag_list AND             # trailing AND should not convert to &, which causes Sphinx parse error
-@other_field AND           :: other field AND           # right now, only 'tag_field' is parsed into a field search expression
-hello & @other_field AND   :: hello &  other field AND
-hello &                    :: hello
-& hello &                  :: hello
-& & hello &                :: hello
-| | hello |                :: hello
-"hello" hello              :: "hello"  hello           # literal
-"hello" @tag_list fox      :: "hello"   @tag_list fox
-@tag_list tea "hello fox"  :: @tag_list tea  "hello fox" 
-hello" hello               :: hello  hello
-hello' hello               :: hello  hello
-hello' @tag_list fox       :: hello   @tag_list fox
-hello' @tag_list fox &     :: hello   @tag_list fox
-:: # blank string case
+7/11                       :: 7 11 [][]
+hello 7/11                 :: hello 7 11 [][]
+hello OR 7/11              :: hello | 7 11 [][]
+hello or 7/11              :: hello | 7 11 [][]
+hello | 7/11               :: hello | 7 11 [][]
+hello AND 7/11             :: hello & 7 11 [][]
+@tag_list fox tango 7/11   :: tango 7 11 ["fox"][]
+@(tag_list) fox tango 7/11 :: tango 7 11 ["fox"][]      # multi field search expression with one field
+@(tag_list) AND            :: ["AND"][]                 # trailing AND should not convert to &, which causes Sphinx parse error
+@other_field AND           :: other field AND [][]      # right now, only 'tag_field' is parsed into a field search expression
+hello & @other_field AND   :: hello &  other field AND [][]
+hello &                    :: hello [][] 
+& hello &                  :: hello [][] 
+& & hello &                :: hello [][]
+| | hello |                :: hello [][]
+"hello" hello              :: "hello" hello [][]        # literal
+"hello" @tag_list fox      :: "hello" ["fox"][]
+@tag_list tea "hello fox"  :: "hello fox" ["tea"][]
+@tag_list "hello fox" tea  :: tea ["hello fox"][]
+hello" hello               :: hello hello [][]
+hello' hello               :: hello hello [][]
+hello' @tag_list fox       :: hello ["fox"][]
+hello' @tag_list fox &     :: hello ["fox"][]
+@tag_list aa @tag_list bb  :: ["aa","bb"][]
+tag:aa tag:bb              :: ["aa","bb"][]
+tag: aa tag: "bb cc" xx    :: xx ["aa","bb cc"][]
+author:aa author:bb xx     :: xx []["aa","bb"]
+tag: aa author: "bb cc"    :: ["aa"]["bb cc"]
+tag: aa xx author: "bb cc" :: xx ["aa"]["bb cc"]
+:: # blank string case -- special-case of empty output
