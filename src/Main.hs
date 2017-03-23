@@ -7,7 +7,7 @@ import System.Environment
 import Data.List
 import Options.Applicative
 import Control.Applicative
-
+import Data.Monoid((<>))
 
 data Options = Options {
     optMode :: Mode
