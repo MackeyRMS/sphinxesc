@@ -1,5 +1,5 @@
 name:                sphinxesc
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            Transform queries for sphinx input
 description:         Transform queries for sphinx input
 category:            Text
