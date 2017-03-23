@@ -146,10 +146,29 @@ authorFilter = do
 
 phrase :: Parser' Expression
 phrase = do
-    char '"'
-    xs <- manyTill anyChar (char '"')
-    return . Phrase $ xs
+    Phrase <$>
+      (between (char '"') (char '"') (many tagChar))
+  where tagChar = 
+              char '\\' *> (char '"')
+          <|> satisfy (`notElem` ("\"\\" :: String))
 
+--     char '"'
+--     xs <- manyTill anyChar (char '"')
+--     return . Phrase $ xs
+
+-- Copied from http://book.realworldhaskell.org/read/using-parsec.html
+-- p_string :: CharParser () String
+-- p_string = between (char '\"') (char '\"') (many jchar)
+--     where jchar = char '\\' *> (p_escape <|> p_unicode)
+--               <|> satisfy (`notElem` "\"\\")
+-- 
+
+-- Copied from http://book.realworldhaskell.org/read/using-parsec.html
+-- p_string :: CharParser () String
+-- p_string = between (char '\"') (char '\"') (many jchar)
+--     where jchar = char '\\' *> (p_escape <|> p_unicode)
+--               <|> satisfy (`notElem` "\"\\")
+-- 
 literalStop :: Parser' ()
 literalStop = (choice [ 
     lookAhead (tagFilter >> return ()) 
