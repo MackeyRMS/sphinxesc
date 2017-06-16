@@ -26,6 +26,12 @@ main = runTestTT . test $ [
 
   , "author:aa author:bb xx" ==> ([], ["aa", "bb"], "xx")
   , "tag: aa xx author: \"bb cc\"" ==> (["aa"], ["bb cc"], "xx")
+
+  -- NEW. make quoted phrase search out of any words with periods in them
+  -- to avoid sphinx whitespace breaking; e.g. AAPL.O
+
+  , "aapl.o foo" ==> ([], [], "\"aapl.o\" foo")
+  , "aapl o foo" ==> ([], [], "aapl o foo") -- no phrase boundary
   ]
 
 (==>) :: String -> ([String], [String], String) -> Test

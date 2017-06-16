@@ -146,11 +146,12 @@ authorFilter = do
 
 phrase :: Parser' Expression
 phrase = do
-    Phrase <$>
-      (between (char '"') (char '"') (many tagChar))
-  where tagChar = 
-              char '\\' *> (char '"')
-          <|> satisfy (`notElem` ("\"\\" :: String))
+    Phrase <$> quotedPhrase 
+  where quotedPhrase = (between (char '"') (char '"') (many tagChar))
+        tagChar = 
+                char '\\' *> (char '"')
+            <|> satisfy (`notElem` ("\"\\" :: String))
+
 
 --     char '"'
 --     xs <- manyTill anyChar (char '"')
@@ -183,7 +184,10 @@ literal :: Parser' Expression
 literal = do
     a  <- anyChar
     xs <- manyTill anyChar (try literalStop)
-    return . Literal $ a:xs
+    return $
+      if '.' `elem` xs  -- AAPL.O should be turned into a literal phrase
+      then Phrase ( a:xs )
+      else Literal ( a:xs )
 
 -----------------------------------------------------------------------
 -- Parse query string after tag and author filters have been removed.
